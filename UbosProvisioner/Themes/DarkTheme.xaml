@@ -1,0 +1,30 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- COLOR PALETTE: DARK -->
+    <!-- Primary -->
+    <SolidColorBrush x:Key="PrimaryBlue" Color="#3B82F6" />
+    <SolidColorBrush x:Key="PrimaryBlueHover" Color="#60A5FA" />
+    <!-- Success: Emerald -->
+    <SolidColorBrush x:Key="Emerald" Color="#10B981" />
+    <SolidColorBrush x:Key="EmeraldHover" Color="#34D399" />
+    <!-- Danger: Red -->
+    <SolidColorBrush x:Key="Red" Color="#EF4444" />
+    <SolidColorBrush x:Key="RedHover" Color="#F87171" />
+    
+    <!-- Text -->
+    <SolidColorBrush x:Key="TextPrimary" Color="#F8FAFC" />
+    <SolidColorBrush x:Key="TextSecondary" Color="#94A3B8" />
+    <SolidColorBrush x:Key="TextOnPrimary" Color="#FFFFFF" />
+    
+    <!-- Backgrounds -->
+    <SolidColorBrush x:Key="BgLight" Color="#0F172A" /> <!-- main window bg -->
+    <SolidColorBrush x:Key="CardBg" Color="#1E293B" />  <!-- panels -->
+    <SolidColorBrush x:Key="ControlBg" Color="#020617" /> <!-- textboxes -->
+    <SolidColorBrush x:Key="ControlBgHover" Color="#334155" />
+    
+    <!-- Borders -->
+    <SolidColorBrush x:Key="BorderLight" Color="#334155" />
+    
+    <!-- Shadows -->
+    <DropShadowEffect x:Key="CardShadow" Color="#000000" Opacity="0.30" BlurRadius="12" Direction="270" ShadowDepth="4" />
+</ResourceDictionary>

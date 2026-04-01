@@ -1,0 +1,11 @@
+MainWindow initialization error: 2026-04-01 12:26:45
+
+'Provide value on 'System.Windows.Baml2006.TypeConverterMarkupExtension' threw an exception.' Line number '197' and line position '71'.
+
+   at System.Windows.Markup.XamlReader.RewrapException(Exception e, IXamlLineInfo lineInfo, Uri baseUri)
+   at System.Windows.Markup.WpfXamlLoader.Load(XamlReader xamlReader, IXamlObjectWriterFactory writerFactory, Boolean skipJournaledProperties, Object rootObject, XamlObjectWriterSettings settings, Uri baseUri)
+   at System.Windows.Markup.WpfXamlLoader.LoadBaml(XamlReader xamlReader, Boolean skipJournaledProperties, Object rootObject, XamlAccessLevel accessLevel, Uri baseUri)
+   at System.Windows.Markup.XamlReader.LoadBaml(Stream stream, ParserContext parserContext, Object parent, Boolean closeStream)
+   at System.Windows.Application.LoadComponent(Object component, Uri resourceLocator)
+   at UbosProvisioner.MainWindow.InitializeComponent() in C:\code\UBOS-Device Provisioner\UbosProvisioner\MainWindow.xaml:line 1
+   at UbosProvisioner.MainWindow..ctor() in C:\code\UBOS-Device Provisioner\UbosProvisioner\MainWindow.xaml.cs:line 14
