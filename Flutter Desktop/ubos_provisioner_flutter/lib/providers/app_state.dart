@@ -32,14 +32,16 @@ class AppState extends ChangeNotifier {
   AuditResult? get lastAudit => _lastAudit;
   bool get isRunning => _status != OperationStatus.idle;
 
-  AppState(this._settingsProvider) {
+  AppState(this._settingsProvider, {bool autoStart = true}) {
     _initAdb();
     _settingsProvider.addListener(_initAdb);
-    // Auto-refresh once on startup, then begin polling
-    Future.microtask(() async {
-      await refreshDevices();
-      startPolling();
-    });
+    if (autoStart) {
+      // Auto-refresh once on startup, then begin polling
+      Future.microtask(() async {
+        await refreshDevices();
+        startPolling();
+      });
+    }
   }
 
   void _initAdb() {
@@ -86,17 +88,26 @@ class AppState extends ChangeNotifier {
     final Map<String, bool> prevSelected = {for (final d in _devices) d.serial: d.isSelected};
     final Map<String, DeviceInfo> prevDevices = {for (final d in _devices) d.serial: d};
 
+    final authorizedNow = <String>{};
+
     for (final d in fresh) {
       if (prevSelected.containsKey(d.serial)) {
         d.isSelected = prevSelected[d.serial]!;
       }
       if (prevDevices.containsKey(d.serial) && d.status == DeviceStatus.ready) {
         final prev = prevDevices[d.serial]!;
+
+        // Track status transition: unauthorized/offline -> ready.
+        if (prev.status != DeviceStatus.ready) {
+          authorizedNow.add(d.serial);
+        }
+
         if (prev.model != 'Unknown') {
           d.model = prev.model;
           d.androidVersion = prev.androidVersion;
           d.batteryLevel = prev.batteryLevel;
           d.storageFree = prev.storageFree;
+          d.googleAccountStatus = prev.googleAccountStatus;
         }
       }
     }
@@ -108,13 +119,27 @@ class AppState extends ChangeNotifier {
     for (final serial in added) {
       _log(serial, LogSeverity.ok, 'Device connected.');
     }
+    for (final serial in authorizedNow) {
+      _log(serial, LogSeverity.ok, 'USB debugging authorized. Loading device details...');
+    }
     for (final serial in removed) {
       _log(serial, LogSeverity.warn, 'Device disconnected.');
     }
 
-    // Load properties only for newly connected devices
+    // Load properties for:
+    // 1) newly connected ready devices,
+    // 2) devices that just became authorized,
+    // 3) ready devices that still have unknown details (retry path).
     for (final d in _devices) {
-      if (d.status == DeviceStatus.ready && added.contains(d.serial)) {
+      final shouldLoad = d.status == DeviceStatus.ready &&
+          (added.contains(d.serial) ||
+              authorizedNow.contains(d.serial) ||
+              d.model == 'Unknown' ||
+              d.batteryLevel.isEmpty ||
+              d.storageFree.isEmpty ||
+              d.googleAccountStatus == 'Unknown');
+
+      if (shouldLoad) {
         await _adb.loadDeviceProperties(d);
         notifyListeners();
       }
@@ -285,7 +310,11 @@ class AppState extends ChangeNotifier {
 
   // ─── De-Provisioning ──────────────────────────────────────────────────────
 
-  Future<void> startDeProvisioning(String outputFolder, bool factoryReset) async {
+  Future<void> startDeProvisioning(
+    String deviceSourceFolder,
+    String outputFolder,
+    bool factoryReset,
+  ) async {
     final selected = _devices.where((d) => d.isSelected && d.status == DeviceStatus.ready).toList();
     if (selected.isEmpty) {
       _log('system', LogSeverity.warn, 'No ready devices selected.');
@@ -303,7 +332,7 @@ class AppState extends ChangeNotifier {
     for (final device in selected) {
       futures.add(semaphore.run(() async {
         if (_cancelRequested) return;
-        await _deprovisionDevice(device, outputFolder, factoryReset);
+        await _deprovisionDevice(device, deviceSourceFolder, outputFolder, factoryReset);
       }));
     }
 
@@ -327,7 +356,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _deprovisionDevice(
-      DeviceInfo device, String outputFolder, bool doFactoryReset) async {
+      DeviceInfo device, String deviceSourceFolder, String outputFolder, bool doFactoryReset) async {
     device.status = DeviceStatus.busy;
     device.progress = 0.0;
     notifyListeners();
@@ -342,7 +371,7 @@ class AppState extends ChangeNotifier {
 
     final pullResult = await _adb.pullFolder(
       device.serial,
-      '/sdcard/Android/data/',
+      deviceSourceFolder,
       deviceOutput,
     );
 
@@ -501,6 +530,8 @@ class AppState extends ChangeNotifier {
   void dispose() {
     _pollTimer?.cancel();
     _settingsProvider.removeListener(_initAdb);
+    // Best-effort cleanup: don't leave adb.exe running.
+    unawaited(_adb.shutdown());
     super.dispose();
   }
 }

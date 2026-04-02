@@ -15,11 +15,13 @@ class DeProvisioningPage extends StatefulWidget {
 
 class _DeProvisioningPageState extends State<DeProvisioningPage> {
   final _outputCtrl = TextEditingController();
+  final _deviceSourceCtrl = TextEditingController(text: '/sdcard/Android/data/');
   bool _factoryReset = false;
 
   @override
   void dispose() {
     _outputCtrl.dispose();
+    _deviceSourceCtrl.dispose();
     super.dispose();
   }
 
@@ -40,6 +42,56 @@ class _DeProvisioningPageState extends State<DeProvisioningPage> {
       left: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          ConfigSection(
+            title: 'Device Source Folder',
+            description:
+                'Folder on the device to extract (pull) data from. You can pick a common path or type a custom one.',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: '/sdcard/Android/data/',
+                  items: const [
+                    DropdownMenuItem(
+                      value: '/sdcard/Android/data/',
+                      child: Text('/sdcard/Android/data/'),
+                    ),
+                    DropdownMenuItem(
+                      value: '/sdcard/Download/',
+                      child: Text('/sdcard/Download/'),
+                    ),
+                    DropdownMenuItem(
+                      value: '/sdcard/Documents/',
+                      child: Text('/sdcard/Documents/'),
+                    ),
+                    DropdownMenuItem(
+                      value: '/sdcard/',
+                      child: Text('/sdcard/'),
+                    ),
+                  ],
+                  onChanged: isRunning
+                      ? null
+                      : (v) {
+                          if (v != null) setState(() => _deviceSourceCtrl.text = v);
+                        },
+                  decoration: const InputDecoration(
+                    labelText: 'Common paths',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _deviceSourceCtrl,
+                  enabled: !isRunning,
+                  decoration: const InputDecoration(
+                    labelText: 'Custom device path',
+                    hintText: '/sdcard/Android/data/com.example.app/files/',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
           ConfigSection(
             title: 'Extract Data Output',
             description: 'Where extracted survey/census data will be saved.',
@@ -66,24 +118,21 @@ class _DeProvisioningPageState extends State<DeProvisioningPage> {
           ),
           const SizedBox(height: 12),
           if (_factoryReset)
-            Card(
-              color: Theme.of(context).colorScheme.errorContainer,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    Icon(Icons.warning_amber_rounded,
-                        color: Theme.of(context).colorScheme.error),
-                    const SizedBox(width: 8),
-                    const Expanded(
-                      child: Text(
-                        'Factory reset is destructive and irreversible. '
-                        'The app will check for FRP/MDM conditions. '
-                        'Ensure data extraction succeeds before wiping.',
-                      ),
+            AppCard(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded,
+                      color: Theme.of(context).colorScheme.error),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Factory reset is destructive and irreversible. '
+                      'The app will check for FRP/MDM conditions. '
+                      'Ensure data extraction succeeds before wiping.',
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           if (_factoryReset) const SizedBox(height: 12),
@@ -100,7 +149,16 @@ class _DeProvisioningPageState extends State<DeProvisioningPage> {
                 onPressed: isRunning
                     ? null
                     : () {
+                        final source = _deviceSourceCtrl.text.trim();
                         final output = _outputCtrl.text.trim();
+                        if (source.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Please enter/select a device source folder first.'),
+                            ),
+                          );
+                          return;
+                        }
                         if (output.isEmpty) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
@@ -108,7 +166,7 @@ class _DeProvisioningPageState extends State<DeProvisioningPage> {
                           );
                           return;
                         }
-                        state.startDeProvisioning(output, _factoryReset);
+                        state.startDeProvisioning(source, output, _factoryReset);
                       },
                 icon: const Icon(Icons.play_arrow),
                 label: const Text('Start De-provisioning'),

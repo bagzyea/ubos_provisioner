@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'providers/app_state.dart';
@@ -9,6 +11,7 @@ import 'screens/logs_reports_page.dart';
 import 'screens/device_info_page.dart';
 import 'screens/settings_page.dart';
 import 'widgets/log_panel.dart';
+import 'widgets/common.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -224,7 +227,7 @@ class _GlobalTopBar extends StatelessWidget {
             child: Row(
               children: [
                 const SizedBox(width: 12),
-                Icon(Icons.usb, size: 16, color: scheme.primary),
+                const _BrandLogo(size: 16),
                 const SizedBox(width: 8),
                 const Text(
                   'UBOS Provisioner',
@@ -261,6 +264,39 @@ class _GlobalTopBar extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _BrandLogo extends StatelessWidget {
+  final double size;
+  const _BrandLogo({required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    // Try common logo filenames under /lib/favicon first.
+    const candidates = [
+      'lib/favicon/logo.png',
+      'lib/favicon/icon.png',
+      'lib/favicon/favicon.png',
+      'lib/favicon/android-chrome-192x192.png',
+      'lib/favicon/android-chrome-512x512.png',
+    ];
+
+    for (final path in candidates) {
+      if (File(path).existsSync()) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: Image.file(
+            File(path),
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+          ),
+        );
+      }
+    }
+
+    return Icon(Icons.usb, size: size, color: Theme.of(context).colorScheme.primary);
   }
 }
 
@@ -575,37 +611,41 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ConstrainedBox(
-      constraints: const BoxConstraints.tightFor(width: 200),
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: color.withAlpha(40),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(icon, color: color, size: 20),
+      constraints: const BoxConstraints(minWidth: 160, maxWidth: 240),
+      child: AppCard(
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: color.withAlpha(40),
+                borderRadius: BorderRadius.circular(10),
               ),
-              const SizedBox(width: 12),
-              Column(
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     value,
+                    overflow: TextOverflow.ellipsis,
                     style: Theme.of(context)
                         .textTheme
                         .headlineSmall
                         ?.copyWith(fontWeight: FontWeight.bold),
                   ),
-                  Text(title, style: Theme.of(context).textTheme.bodySmall),
+                  Text(
+                    title,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
