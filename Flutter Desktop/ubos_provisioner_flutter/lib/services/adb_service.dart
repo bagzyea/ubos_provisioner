@@ -15,6 +15,7 @@ class AdbResult {
 class AdbService {
   String adbPath;
   static const _timeout = Duration(seconds: 60);
+  final Set<Process> _activeProcesses = {};
 
   AdbService(this.adbPath);
 
@@ -68,16 +69,24 @@ class AdbService {
     Process process;
     try {
       process = await Process.start(adbPath, ['-s', serial, ...args]);
+      _activeProcesses.add(process);
     } catch (e) {
       yield 'ERROR: $e';
       return;
     }
-    await for (final line in process.stdout.transform(utf8.decoder).transform(const LineSplitter())) {
-      yield line;
+    try {
+      await for (final line in process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        yield line;
+      }
+      await process.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .forEach((_) {});
+    } finally {
+      _activeProcesses.remove(process);
     }
-    await process.stderr.transform(utf8.decoder).transform(const LineSplitter()).forEach((line) {
-      // error output silently consumed; caller can check exit code separately
-    });
   }
 
   Future<List<DeviceInfo>> getConnectedDevicesAsync() async {
@@ -95,28 +104,41 @@ class AdbService {
       final state = parts[1].trim();
       if (serial.isEmpty) continue;
 
-      DeviceStatus status;
-      switch (state) {
-        case 'device':
-          status = DeviceStatus.ready;
-        case 'unauthorized':
-          status = DeviceStatus.unauthorized;
-        default:
-          status = DeviceStatus.offline;
-      }
+      final status = switch (state) {
+        'device' => DeviceStatus.ready,
+        'unauthorized' => DeviceStatus.unauthorized,
+        _ => DeviceStatus.offline,
+      };
 
       devices.add(DeviceInfo(serial: serial, status: status));
     }
     return devices;
   }
 
+  Future<bool> waitForDeviceReady(
+    String serial, {
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    final start = DateTime.now();
+    while (DateTime.now().difference(start) < timeout) {
+      final state = await runDeviceAsync(serial, ['get-state'], timeout: const Duration(seconds: 3));
+      if (state.isSuccess && state.output.trim() == 'device') return true;
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+    return false;
+  }
+
   Future<void> loadDeviceProperties(DeviceInfo device) async {
     if (device.status != DeviceStatus.ready) return;
+    final ready = await waitForDeviceReady(device.serial);
+    if (!ready) return;
+
     final futures = await Future.wait([
       runDeviceAsync(device.serial, ['shell', 'getprop', 'ro.product.model']),
       runDeviceAsync(device.serial, ['shell', 'getprop', 'ro.build.version.release']),
       runDeviceAsync(device.serial, ['shell', 'dumpsys', 'battery']),
       runDeviceAsync(device.serial, ['shell', 'df', '/sdcard']),
+      runDeviceAsync(device.serial, ['shell', 'dumpsys', 'account']),
     ]);
 
     device.model = futures[0].output.isNotEmpty ? futures[0].output : 'Unknown';
@@ -138,6 +160,16 @@ class AdbService {
         }
         break;
       }
+    }
+
+    // Detect Google account presence (FRP risk indicator)
+    final accountsOutput = futures[4].output.toLowerCase();
+    if (accountsOutput.isEmpty) {
+      device.googleAccountStatus = 'Unknown';
+    } else if (accountsOutput.contains('com.google')) {
+      device.googleAccountStatus = 'Present';
+    } else {
+      device.googleAccountStatus = 'Not present';
     }
   }
 
@@ -199,5 +231,21 @@ class AdbService {
 
   Future<AdbResult> clearLock(String serial, String pin) {
     return runDeviceAsync(serial, ['shell', 'locksettings', 'clear', '--old', pin]);
+  }
+
+  /// Best-effort cleanup so the app doesn't leave an `adb.exe` server running.
+  ///
+  /// - Kills any child processes started via `Process.start` in this service.
+  /// - Runs `adb kill-server` to stop the ADB daemon.
+  Future<void> shutdown() async {
+    for (final p in _activeProcesses.toList()) {
+      try {
+        p.kill(ProcessSignal.sigterm);
+      } catch (_) {}
+    }
+    _activeProcesses.clear();
+    try {
+      await runAsync(['kill-server'], timeout: const Duration(seconds: 10));
+    } catch (_) {}
   }
 }

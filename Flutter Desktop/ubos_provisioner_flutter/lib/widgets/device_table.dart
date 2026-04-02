@@ -67,6 +67,7 @@ class DeviceTable extends StatelessWidget {
                     DataColumn(label: Text('Select')),
                     DataColumn(label: Text('Serial')),
                     DataColumn(label: Text('Model')),
+                    DataColumn(label: Text('Google Account')),
                     DataColumn(label: Text('Status')),
                     DataColumn(label: Text('Progress')),
                   ],
@@ -83,6 +84,7 @@ class DeviceTable extends StatelessWidget {
                         ),
                         DataCell(SelectableText(d.serial)),
                         DataCell(Text(d.model)),
+                        DataCell(_GoogleAccountChip(status: d.googleAccountStatus)),
                         DataCell(_StatusChip(status: d.status)),
                         DataCell(
                           SizedBox(
@@ -113,6 +115,28 @@ class DeviceTable extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _GoogleAccountChip extends StatelessWidget {
+  final String status;
+  const _GoogleAccountChip({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = status.toLowerCase();
+    final (color, label) = switch (normalized) {
+      'present' => (Colors.red, 'Present'),
+      'not present' => (Colors.green, 'Not present'),
+      _ => (Colors.grey, 'Unknown'),
+    };
+    return Chip(
+      label: Text(label, style: const TextStyle(fontSize: 12)),
+      backgroundColor: color.withAlpha(40),
+      side: BorderSide(color: color.withAlpha(80)),
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
     );
   }
 }
