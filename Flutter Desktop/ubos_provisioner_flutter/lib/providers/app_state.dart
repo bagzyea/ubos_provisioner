@@ -384,27 +384,56 @@ class AppState extends ChangeNotifier {
     final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-').substring(0, 19);
     final deviceOutput = p.join(outputFolder, '${device.serial}_$timestamp');
 
-    // Pull data
     _log(device.serial, LogSeverity.info, 'Pulling survey data...');
     device.currentStep = 'Pulling data...';
     notifyListeners();
 
-    final pullResult = await _adb.pullFolder(
-      device.serial,
-      deviceSourceFolder,
-      deviceOutput,
-    );
+    bool pullOk = false;
+    final pullResult = await _adb.pullFolder(device.serial, deviceSourceFolder, deviceOutput);
 
     if (pullResult.isSuccess) {
       _log(device.serial, LogSeverity.ok, 'Data pulled to $deviceOutput');
       device.progress = 0.7;
+      pullOk = true;
+      notifyListeners();
+    } else if ((pullResult.error + pullResult.output).contains('Permission denied')) {
+      // Android 11+ scoped storage restriction — copy via shell to a public
+      // temp location first so adb pull can reach the files.
+      _log(device.serial, LogSeverity.warn,
+          'Direct pull restricted (Android 11+ scoped storage). Trying shell-copy fallback...');
+      device.currentStep = 'Shell-copy fallback...';
+      notifyListeners();
+
+      const tempRemote = '/sdcard/ubos_export_temp';
+      await _adb.runDeviceAsync(device.serial, ['shell', 'rm', '-rf', tempRemote]);
+      await _adb.runDeviceAsync(
+        device.serial,
+        ['shell', 'cp', '-r', deviceSourceFolder, tempRemote],
+        timeout: const Duration(minutes: 5),
+      );
+      final retryResult = await _adb.pullFolder(device.serial, tempRemote, deviceOutput);
+      await _adb.runDeviceAsync(device.serial, ['shell', 'rm', '-rf', tempRemote]);
+
+      if (retryResult.isSuccess) {
+        _log(device.serial, LogSeverity.ok, 'Data pulled via shell-copy to $deviceOutput');
+        device.progress = 0.7;
+        pullOk = true;
+      } else {
+        pullOk = await _checkPartialPull(device, deviceOutput, retryResult.error);
+      }
       notifyListeners();
     } else {
-      _log(device.serial, LogSeverity.error, 'Data pull failed: ${pullResult.error}');
+      // Non-permission failure — still check if a partial pull landed some files.
+      pullOk = await _checkPartialPull(device, deviceOutput, pullResult.error);
+      notifyListeners();
     }
 
-    // Factory reset
+    // Factory reset — runs even on partial pull so data collection isn't blocked.
     if (doFactoryReset && !_cancelRequested) {
+      if (!pullOk) {
+        _log(device.serial, LogSeverity.warn,
+            'Pull had errors — proceeding with factory reset as configured.');
+      }
       device.currentStep = 'Factory reset...';
       notifyListeners();
       _log(device.serial, LogSeverity.warn, 'Initiating factory reset...');
@@ -420,6 +449,24 @@ class AppState extends ChangeNotifier {
     device.progress = 1.0;
     device.currentStep = 'Done';
     notifyListeners();
+  }
+
+  /// Returns true if some files were pulled (partial success), logs accordingly.
+  Future<bool> _checkPartialPull(DeviceInfo device, String localDir, String errorText) async {
+    final dir = Directory(localDir);
+    final hasFiles =
+        dir.existsSync() && dir.listSync(recursive: true).any((e) => e is File);
+    if (hasFiles) {
+      _log(device.serial, LogSeverity.warn,
+          'Partial pull — some files were skipped due to device permissions. Data saved to $localDir');
+      device.progress = 0.7;
+      return true;
+    }
+    final firstLine = errorText.contains('\n')
+        ? errorText.substring(0, errorText.indexOf('\n')).trim()
+        : errorText.trim();
+    _log(device.serial, LogSeverity.error, 'Data pull failed: $firstLine');
+    return false;
   }
 
   // ─── Audit ────────────────────────────────────────────────────────────────
