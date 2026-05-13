@@ -18,14 +18,19 @@ class _ProvisioningPageState extends State<ProvisioningPage> {
   final _appDataCtrl = TextEditingController();
   final _tpkCtrl = TextEditingController();
   final _maxParallelCtrl = TextEditingController(text: '3');
+  final _pinCtrl = TextEditingController();
+  final _pinConfirmCtrl = TextEditingController();
   TpkDistributionMode _tpkMode = TpkDistributionMode.roundRobin;
   final List<String> _apks = [];
+  bool _pinVisible = false;
 
   @override
   void dispose() {
     _appDataCtrl.dispose();
     _tpkCtrl.dispose();
     _maxParallelCtrl.dispose();
+    _pinCtrl.dispose();
+    _pinConfirmCtrl.dispose();
     super.dispose();
   }
 
@@ -53,12 +58,30 @@ class _ProvisioningPageState extends State<ProvisioningPage> {
   }
 
   void _startProvisioning(AppState state) {
+    final pin = _pinCtrl.text.trim();
+    final confirm = _pinConfirmCtrl.text.trim();
+
+    if (pin.isNotEmpty && pin != confirm) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('PINs do not match. Please check and try again.')),
+      );
+      return;
+    }
+
+    if (pin.isNotEmpty && (pin.length < 4 || pin.length > 6)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('PIN must be 4–6 digits.')),
+      );
+      return;
+    }
+
     final config = ProvisioningConfig(
       apkPaths: List.from(_apks),
       appDataFolder: _appDataCtrl.text.trim(),
       tpkFolder: _tpkCtrl.text.trim(),
       tpkMode: _tpkMode,
       maxParallel: int.tryParse(_maxParallelCtrl.text) ?? 3,
+      devicePin: pin,
     );
     state.startProvisioning(config);
   }
@@ -205,6 +228,81 @@ class _ProvisioningPageState extends State<ProvisioningPage> {
                     ),
                   ],
                 ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          ConfigSection(
+            title: 'Device PIN Lock',
+            description:
+                'Set a screen PIN on every device after provisioning. Leave blank to skip.',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _pinCtrl,
+                        enabled: !isRunning,
+                        obscureText: !_pinVisible,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText: 'PIN (leave blank to skip)',
+                          hintText: '4–6 digits',
+                          border: const OutlineInputBorder(),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _pinVisible ? Icons.visibility_off : Icons.visibility,
+                            ),
+                            onPressed: () => setState(() => _pinVisible = !_pinVisible),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: _pinConfirmCtrl,
+                        enabled: !isRunning,
+                        obscureText: !_pinVisible,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText: 'Confirm PIN',
+                          hintText: 'Re-enter PIN',
+                          border: const OutlineInputBorder(),
+                          suffixIcon: ValueListenableBuilder(
+                            valueListenable: _pinConfirmCtrl,
+                            builder: (_, __, ___) {
+                              final match = _pinCtrl.text == _pinConfirmCtrl.text;
+                              final bothFilled = _pinCtrl.text.isNotEmpty &&
+                                  _pinConfirmCtrl.text.isNotEmpty;
+                              if (!bothFilled) return const SizedBox.shrink();
+                              return Icon(
+                                match ? Icons.check_circle : Icons.cancel,
+                                color: match ? Colors.green : Colors.red,
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (_pinCtrl.text.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.lock, size: 14),
+                        const SizedBox(width: 4),
+                        Text(
+                          'PIN will be set on all selected devices after provisioning.',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),

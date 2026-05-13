@@ -112,7 +112,14 @@ class AppState extends ChangeNotifier {
       }
     }
 
-    _devices = fresh;
+    // Keep the existing object reference for busy devices so that any
+    // in-progress provisioning/deprovisioning operation still mutates the
+    // object that is held in _devices (and therefore visible to the UI).
+    _devices = fresh.map((d) {
+      final prev = prevDevices[d.serial];
+      if (prev != null && prev.status == DeviceStatus.busy) return prev;
+      return d;
+    }).toList();
     notifyListeners();
 
     // Only log on actual changes
@@ -222,7 +229,7 @@ class AppState extends ChangeNotifier {
     final logsDir = _settingsProvider.settings.logsDirectory;
     try {
       final path = await _reporting.exportProvisioningCsv(
-        logsDir.isNotEmpty ? logsDir : 'Logs',
+        logsDir.isNotEmpty ? logsDir : ReportingService.defaultLogsDir,
         _logs,
       );
       _log('system', LogSeverity.ok, 'Report saved: $path');
@@ -302,6 +309,19 @@ class AppState extends ChangeNotifier {
       }
     }
 
+    // Set PIN lock as final provisioning step
+    if (config.devicePin.isNotEmpty && !_cancelRequested) {
+      updateProgress('Setting PIN lock...');
+      _log(device.serial, LogSeverity.info, 'Setting PIN lock...');
+      final result = await _adb.setPinLock(device.serial, config.devicePin);
+      if (result.isSuccess || result.output.toLowerCase().contains('success')) {
+        _log(device.serial, LogSeverity.ok, 'PIN lock set successfully.');
+      } else {
+        _log(device.serial, LogSeverity.error,
+            'Failed to set PIN: ${result.error.isNotEmpty ? result.error : result.output}');
+      }
+    }
+
     device.status = DeviceStatus.ready;
     device.progress = 1.0;
     device.currentStep = _cancelRequested ? 'Cancelled' : 'Done';
@@ -346,7 +366,7 @@ class AppState extends ChangeNotifier {
       final path = await _reporting.exportProvisioningCsv(
         _settingsProvider.settings.logsDirectory.isNotEmpty
             ? _settingsProvider.settings.logsDirectory
-            : 'Logs',
+            : ReportingService.defaultLogsDir,
         _logs,
       );
       _log('system', LogSeverity.ok, 'Report saved: $path');
@@ -471,6 +491,22 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setDeviceLock(String serial, String pin) async {
+    if (serial.trim().isEmpty || pin.trim().isEmpty) {
+      _log('system', LogSeverity.warn, 'Serial and PIN required.');
+      return;
+    }
+    _log(serial, LogSeverity.info, 'Setting PIN lock...');
+    final result = await _adb.setPinLock(serial, pin);
+    if (result.isSuccess || result.output.toLowerCase().contains('success')) {
+      _log(serial, LogSeverity.ok, 'PIN lock set successfully.');
+    } else {
+      _log(serial, LogSeverity.error,
+          'Set PIN failed: ${result.error.isNotEmpty ? result.error : result.output}');
+    }
+    notifyListeners();
+  }
+
   Future<void> clearDeviceLock(String serial, String pin) async {
     if (serial.trim().isEmpty || pin.trim().isEmpty) {
       _log('system', LogSeverity.warn, 'Serial and PIN required.');
@@ -513,7 +549,7 @@ class AppState extends ChangeNotifier {
       final path = await _reporting.exportProvisioningCsv(
         _settingsProvider.settings.logsDirectory.isNotEmpty
             ? _settingsProvider.settings.logsDirectory
-            : 'Logs',
+            : ReportingService.defaultLogsDir,
         _logs,
       );
       _log('system', LogSeverity.ok, 'CSV exported: $path');

@@ -135,31 +135,49 @@ class _AuditRecoveryPageState extends State<AuditRecoveryPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Unlock (PIN)',
+                      Text('PIN Management',
                           style: Theme.of(context).textTheme.titleMedium),
                       const SizedBox(height: 12),
                       TextField(
                         controller: _pinCtrl,
                         obscureText: true,
+                        keyboardType: TextInputType.number,
                         decoration: const InputDecoration(
                           labelText: 'PIN',
+                          hintText: '4–6 digits',
                           border: OutlineInputBorder(),
                         ),
                       ),
                       const SizedBox(height: 12),
-                      FilledButton.icon(
-                        onPressed: () {
-                          final serial = _serialCtrl.text.trim();
-                          final pin = _pinCtrl.text;
-                          state.clearDeviceLock(serial, pin);
-                          _pinCtrl.clear();
-                        },
-                        icon: const Icon(Icons.lock_open),
-                        label: const Text('Clear Lock'),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: () {
+                              final serial = _serialCtrl.text.trim();
+                              final pin = _pinCtrl.text;
+                              state.setDeviceLock(serial, pin);
+                              _pinCtrl.clear();
+                            },
+                            icon: const Icon(Icons.lock),
+                            label: const Text('Set PIN'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () {
+                              final serial = _serialCtrl.text.trim();
+                              final pin = _pinCtrl.text;
+                              state.clearDeviceLock(serial, pin);
+                              _pinCtrl.clear();
+                            },
+                            icon: const Icon(Icons.lock_open),
+                            label: const Text('Clear Lock'),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'PIN is treated as sensitive and is not stored.',
+                        'Set PIN: locks the device with a new PIN.\nClear Lock: removes an existing lock (requires current PIN).',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ],

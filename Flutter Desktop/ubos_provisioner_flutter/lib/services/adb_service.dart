@@ -162,11 +162,15 @@ class AdbService {
       }
     }
 
-    // Detect Google account presence (FRP risk indicator)
-    final accountsOutput = futures[4].output.toLowerCase();
+    // Detect signed-in Google accounts.
+    // dumpsys account always lists com.google as a registered authenticator
+    // type even when no account is signed in — so we look for actual
+    // Account { ... type=com.google ... } entries instead.
+    final accountsOutput = futures[4].output;
     if (accountsOutput.isEmpty) {
       device.googleAccountStatus = 'Unknown';
-    } else if (accountsOutput.contains('com.google')) {
+    } else if (RegExp(r'Account \{[^}]+type=com\.google[^}]*\}', caseSensitive: false)
+        .hasMatch(accountsOutput)) {
       device.googleAccountStatus = 'Present';
     } else {
       device.googleAccountStatus = 'Not present';
@@ -225,8 +229,13 @@ class AdbService {
   Future<String> getFrpStatus(String serial) async {
     final result = await runDeviceAsync(serial, ['shell', 'dumpsys', 'account']);
     if (!result.isSuccess) return 'Unknown';
-    final hasGoogle = result.output.toLowerCase().contains('com.google');
+    final hasGoogle = RegExp(r'Account \{[^}]+type=com\.google[^}]*\}', caseSensitive: false)
+        .hasMatch(result.output);
     return hasGoogle ? 'Google account present (FRP risk)' : 'No Google account detected';
+  }
+
+  Future<AdbResult> setPinLock(String serial, String pin) {
+    return runDeviceAsync(serial, ['shell', 'locksettings', 'set-pin', pin]);
   }
 
   Future<AdbResult> clearLock(String serial, String pin) {

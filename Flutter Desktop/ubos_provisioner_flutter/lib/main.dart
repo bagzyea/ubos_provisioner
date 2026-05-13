@@ -167,7 +167,7 @@ class _PageScaffold extends StatelessWidget {
 
   const _PageScaffold({
     required this.title,
-    required this.child,
+  required this.child,
     required this.onRefresh,
   });
 
