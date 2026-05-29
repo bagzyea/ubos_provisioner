@@ -6,6 +6,7 @@ class DeviceInfo {
   String androidVersion;
   String batteryLevel;
   String storageFree;
+  String googleAccountStatus;
   DeviceStatus status;
   bool isSelected;
   double progress;
@@ -17,6 +18,7 @@ class DeviceInfo {
     this.androidVersion = '',
     this.batteryLevel = '',
     this.storageFree = '',
+    this.googleAccountStatus = 'Unknown',
     this.status = DeviceStatus.ready,
     this.isSelected = false,
     this.progress = 0.0,

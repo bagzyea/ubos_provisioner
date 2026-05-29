@@ -77,6 +77,7 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
                         DataColumn(label: Text('Android')),
                         DataColumn(label: Text('Battery')),
                         DataColumn(label: Text('Storage Free')),
+                        DataColumn(label: Text('Google Account')),
                         DataColumn(label: Text('Status')),
                       ],
                       rows: devices.map((d) {
@@ -91,6 +92,7 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
                             DataCell(Text(d.androidVersion)),
                             DataCell(Text(d.batteryLevel)),
                             DataCell(Text(d.storageFree)),
+                            DataCell(_GoogleAccountChip(status: d.googleAccountStatus)),
                             DataCell(_StatusChip(status: d.status)),
                           ],
                         );
@@ -126,6 +128,9 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
                       KeyValueRow(
                           label: 'Storage Free', value: selected.storageFree),
                       KeyValueRow(
+                          label: 'Google Account',
+                          value: selected.googleAccountStatus),
+                      KeyValueRow(
                           label: 'Status', value: selected.statusLabel),
                       if (selected.currentStep.isNotEmpty)
                         KeyValueRow(
@@ -142,6 +147,28 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _GoogleAccountChip extends StatelessWidget {
+  final String status;
+  const _GoogleAccountChip({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = status.toLowerCase();
+    final (color, label) = switch (normalized) {
+      'present' => (Colors.red, 'Present'),
+      'not present' => (Colors.green, 'Not present'),
+      _ => (Colors.grey, 'Unknown'),
+    };
+    return Chip(
+      label: Text(label, style: const TextStyle(fontSize: 12)),
+      backgroundColor: color.withAlpha(40),
+      side: BorderSide(color: color.withAlpha(80)),
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
     );
   }
 }

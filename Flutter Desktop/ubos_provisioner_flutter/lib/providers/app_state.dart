@@ -32,14 +32,16 @@ class AppState extends ChangeNotifier {
   AuditResult? get lastAudit => _lastAudit;
   bool get isRunning => _status != OperationStatus.idle;
 
-  AppState(this._settingsProvider) {
+  AppState(this._settingsProvider, {bool autoStart = true}) {
     _initAdb();
     _settingsProvider.addListener(_initAdb);
-    // Auto-refresh once on startup, then begin polling
-    Future.microtask(() async {
-      await refreshDevices();
-      startPolling();
-    });
+    if (autoStart) {
+      // Auto-refresh once on startup, then begin polling
+      Future.microtask(() async {
+        await refreshDevices();
+        startPolling();
+      });
+    }
   }
 
   void _initAdb() {
@@ -86,35 +88,65 @@ class AppState extends ChangeNotifier {
     final Map<String, bool> prevSelected = {for (final d in _devices) d.serial: d.isSelected};
     final Map<String, DeviceInfo> prevDevices = {for (final d in _devices) d.serial: d};
 
+    final authorizedNow = <String>{};
+
     for (final d in fresh) {
       if (prevSelected.containsKey(d.serial)) {
         d.isSelected = prevSelected[d.serial]!;
       }
       if (prevDevices.containsKey(d.serial) && d.status == DeviceStatus.ready) {
         final prev = prevDevices[d.serial]!;
+
+        // Track status transition: unauthorized/offline -> ready.
+        if (prev.status != DeviceStatus.ready) {
+          authorizedNow.add(d.serial);
+        }
+
         if (prev.model != 'Unknown') {
           d.model = prev.model;
           d.androidVersion = prev.androidVersion;
           d.batteryLevel = prev.batteryLevel;
           d.storageFree = prev.storageFree;
+          d.googleAccountStatus = prev.googleAccountStatus;
         }
       }
     }
 
-    _devices = fresh;
+    // Keep the existing object reference for busy devices so that any
+    // in-progress provisioning/deprovisioning operation still mutates the
+    // object that is held in _devices (and therefore visible to the UI).
+    _devices = fresh.map((d) {
+      final prev = prevDevices[d.serial];
+      if (prev != null && prev.status == DeviceStatus.busy) return prev;
+      return d;
+    }).toList();
     notifyListeners();
 
     // Only log on actual changes
     for (final serial in added) {
       _log(serial, LogSeverity.ok, 'Device connected.');
     }
+    for (final serial in authorizedNow) {
+      _log(serial, LogSeverity.ok, 'USB debugging authorized. Loading device details...');
+    }
     for (final serial in removed) {
       _log(serial, LogSeverity.warn, 'Device disconnected.');
     }
 
-    // Load properties only for newly connected devices
+    // Load properties for:
+    // 1) newly connected ready devices,
+    // 2) devices that just became authorized,
+    // 3) ready devices that still have unknown details (retry path).
     for (final d in _devices) {
-      if (d.status == DeviceStatus.ready && added.contains(d.serial)) {
+      final shouldLoad = d.status == DeviceStatus.ready &&
+          (added.contains(d.serial) ||
+              authorizedNow.contains(d.serial) ||
+              d.model == 'Unknown' ||
+              d.batteryLevel.isEmpty ||
+              d.storageFree.isEmpty ||
+              d.googleAccountStatus == 'Unknown');
+
+      if (shouldLoad) {
         await _adb.loadDeviceProperties(d);
         notifyListeners();
       }
@@ -197,7 +229,7 @@ class AppState extends ChangeNotifier {
     final logsDir = _settingsProvider.settings.logsDirectory;
     try {
       final path = await _reporting.exportProvisioningCsv(
-        logsDir.isNotEmpty ? logsDir : 'Logs',
+        logsDir.isNotEmpty ? logsDir : ReportingService.defaultLogsDir,
         _logs,
       );
       _log('system', LogSeverity.ok, 'Report saved: $path');
@@ -277,6 +309,19 @@ class AppState extends ChangeNotifier {
       }
     }
 
+    // Set PIN lock as final provisioning step
+    if (config.devicePin.isNotEmpty && !_cancelRequested) {
+      updateProgress('Setting PIN lock...');
+      _log(device.serial, LogSeverity.info, 'Setting PIN lock...');
+      final result = await _adb.setPinLock(device.serial, config.devicePin);
+      if (result.isSuccess || result.output.toLowerCase().contains('success')) {
+        _log(device.serial, LogSeverity.ok, 'PIN lock set successfully.');
+      } else {
+        _log(device.serial, LogSeverity.error,
+            'Failed to set PIN: ${result.error.isNotEmpty ? result.error : result.output}');
+      }
+    }
+
     device.status = DeviceStatus.ready;
     device.progress = 1.0;
     device.currentStep = _cancelRequested ? 'Cancelled' : 'Done';
@@ -285,7 +330,11 @@ class AppState extends ChangeNotifier {
 
   // ─── De-Provisioning ──────────────────────────────────────────────────────
 
-  Future<void> startDeProvisioning(String outputFolder, bool factoryReset) async {
+  Future<void> startDeProvisioning(
+    String deviceSourceFolder,
+    String outputFolder,
+    bool factoryReset,
+  ) async {
     final selected = _devices.where((d) => d.isSelected && d.status == DeviceStatus.ready).toList();
     if (selected.isEmpty) {
       _log('system', LogSeverity.warn, 'No ready devices selected.');
@@ -303,7 +352,7 @@ class AppState extends ChangeNotifier {
     for (final device in selected) {
       futures.add(semaphore.run(() async {
         if (_cancelRequested) return;
-        await _deprovisionDevice(device, outputFolder, factoryReset);
+        await _deprovisionDevice(device, deviceSourceFolder, outputFolder, factoryReset);
       }));
     }
 
@@ -317,7 +366,7 @@ class AppState extends ChangeNotifier {
       final path = await _reporting.exportProvisioningCsv(
         _settingsProvider.settings.logsDirectory.isNotEmpty
             ? _settingsProvider.settings.logsDirectory
-            : 'Logs',
+            : ReportingService.defaultLogsDir,
         _logs,
       );
       _log('system', LogSeverity.ok, 'Report saved: $path');
@@ -327,7 +376,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _deprovisionDevice(
-      DeviceInfo device, String outputFolder, bool doFactoryReset) async {
+      DeviceInfo device, String deviceSourceFolder, String outputFolder, bool doFactoryReset) async {
     device.status = DeviceStatus.busy;
     device.progress = 0.0;
     notifyListeners();
@@ -335,27 +384,56 @@ class AppState extends ChangeNotifier {
     final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-').substring(0, 19);
     final deviceOutput = p.join(outputFolder, '${device.serial}_$timestamp');
 
-    // Pull data
     _log(device.serial, LogSeverity.info, 'Pulling survey data...');
     device.currentStep = 'Pulling data...';
     notifyListeners();
 
-    final pullResult = await _adb.pullFolder(
-      device.serial,
-      '/sdcard/Android/data/',
-      deviceOutput,
-    );
+    bool pullOk = false;
+    final pullResult = await _adb.pullFolder(device.serial, deviceSourceFolder, deviceOutput);
 
     if (pullResult.isSuccess) {
       _log(device.serial, LogSeverity.ok, 'Data pulled to $deviceOutput');
       device.progress = 0.7;
+      pullOk = true;
+      notifyListeners();
+    } else if ((pullResult.error + pullResult.output).contains('Permission denied')) {
+      // Android 11+ scoped storage restriction — copy via shell to a public
+      // temp location first so adb pull can reach the files.
+      _log(device.serial, LogSeverity.warn,
+          'Direct pull restricted (Android 11+ scoped storage). Trying shell-copy fallback...');
+      device.currentStep = 'Shell-copy fallback...';
+      notifyListeners();
+
+      const tempRemote = '/sdcard/ubos_export_temp';
+      await _adb.runDeviceAsync(device.serial, ['shell', 'rm', '-rf', tempRemote]);
+      await _adb.runDeviceAsync(
+        device.serial,
+        ['shell', 'cp', '-r', deviceSourceFolder, tempRemote],
+        timeout: const Duration(minutes: 5),
+      );
+      final retryResult = await _adb.pullFolder(device.serial, tempRemote, deviceOutput);
+      await _adb.runDeviceAsync(device.serial, ['shell', 'rm', '-rf', tempRemote]);
+
+      if (retryResult.isSuccess) {
+        _log(device.serial, LogSeverity.ok, 'Data pulled via shell-copy to $deviceOutput');
+        device.progress = 0.7;
+        pullOk = true;
+      } else {
+        pullOk = await _checkPartialPull(device, deviceOutput, retryResult.error);
+      }
       notifyListeners();
     } else {
-      _log(device.serial, LogSeverity.error, 'Data pull failed: ${pullResult.error}');
+      // Non-permission failure — still check if a partial pull landed some files.
+      pullOk = await _checkPartialPull(device, deviceOutput, pullResult.error);
+      notifyListeners();
     }
 
-    // Factory reset
+    // Factory reset — runs even on partial pull so data collection isn't blocked.
     if (doFactoryReset && !_cancelRequested) {
+      if (!pullOk) {
+        _log(device.serial, LogSeverity.warn,
+            'Pull had errors — proceeding with factory reset as configured.');
+      }
       device.currentStep = 'Factory reset...';
       notifyListeners();
       _log(device.serial, LogSeverity.warn, 'Initiating factory reset...');
@@ -371,6 +449,24 @@ class AppState extends ChangeNotifier {
     device.progress = 1.0;
     device.currentStep = 'Done';
     notifyListeners();
+  }
+
+  /// Returns true if some files were pulled (partial success), logs accordingly.
+  Future<bool> _checkPartialPull(DeviceInfo device, String localDir, String errorText) async {
+    final dir = Directory(localDir);
+    final hasFiles =
+        dir.existsSync() && dir.listSync(recursive: true).any((e) => e is File);
+    if (hasFiles) {
+      _log(device.serial, LogSeverity.warn,
+          'Partial pull — some files were skipped due to device permissions. Data saved to $localDir');
+      device.progress = 0.7;
+      return true;
+    }
+    final firstLine = errorText.contains('\n')
+        ? errorText.substring(0, errorText.indexOf('\n')).trim()
+        : errorText.trim();
+    _log(device.serial, LogSeverity.error, 'Data pull failed: $firstLine');
+    return false;
   }
 
   // ─── Audit ────────────────────────────────────────────────────────────────
@@ -442,6 +538,22 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setDeviceLock(String serial, String pin) async {
+    if (serial.trim().isEmpty || pin.trim().isEmpty) {
+      _log('system', LogSeverity.warn, 'Serial and PIN required.');
+      return;
+    }
+    _log(serial, LogSeverity.info, 'Setting PIN lock...');
+    final result = await _adb.setPinLock(serial, pin);
+    if (result.isSuccess || result.output.toLowerCase().contains('success')) {
+      _log(serial, LogSeverity.ok, 'PIN lock set successfully.');
+    } else {
+      _log(serial, LogSeverity.error,
+          'Set PIN failed: ${result.error.isNotEmpty ? result.error : result.output}');
+    }
+    notifyListeners();
+  }
+
   Future<void> clearDeviceLock(String serial, String pin) async {
     if (serial.trim().isEmpty || pin.trim().isEmpty) {
       _log('system', LogSeverity.warn, 'Serial and PIN required.');
@@ -484,7 +596,7 @@ class AppState extends ChangeNotifier {
       final path = await _reporting.exportProvisioningCsv(
         _settingsProvider.settings.logsDirectory.isNotEmpty
             ? _settingsProvider.settings.logsDirectory
-            : 'Logs',
+            : ReportingService.defaultLogsDir,
         _logs,
       );
       _log('system', LogSeverity.ok, 'CSV exported: $path');
@@ -501,6 +613,8 @@ class AppState extends ChangeNotifier {
   void dispose() {
     _pollTimer?.cancel();
     _settingsProvider.removeListener(_initAdb);
+    // Best-effort cleanup: don't leave adb.exe running.
+    unawaited(_adb.shutdown());
     super.dispose();
   }
 }

@@ -2,8 +2,14 @@ import 'dart:io';
 import '../models/log_entry.dart';
 
 class ReportingService {
+  static String get defaultLogsDir {
+    final userProfile =
+        Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? '.';
+    return '$userProfile\\Documents\\UBOS Provisioner\\Logs';
+  }
+
   Future<String> exportProvisioningCsv(String logsDir, List<LogEntry> logs) async {
-    final dir = Directory(logsDir.isNotEmpty ? logsDir : 'Logs');
+    final dir = Directory(logsDir.isNotEmpty ? logsDir : defaultLogsDir);
     await dir.create(recursive: true);
     final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-').substring(0, 19);
     final file = File('${dir.path}\\provisioning_$timestamp.csv');
@@ -17,7 +23,7 @@ class ReportingService {
   }
 
   Future<String> exportAuditCsv(String logsDir, Map<String, dynamic> auditData) async {
-    final dir = Directory(logsDir.isNotEmpty ? logsDir : 'Logs');
+    final dir = Directory(logsDir.isNotEmpty ? logsDir : defaultLogsDir);
     await dir.create(recursive: true);
     final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-').substring(0, 19);
     final file = File('${dir.path}\\audit_$timestamp.csv');

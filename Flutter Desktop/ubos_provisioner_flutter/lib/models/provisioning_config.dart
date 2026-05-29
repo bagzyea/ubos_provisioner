@@ -6,6 +6,7 @@ class ProvisioningConfig {
   String tpkFolder;
   TpkDistributionMode tpkMode;
   int maxParallel;
+  String devicePin;
 
   ProvisioningConfig({
     List<String>? apkPaths,
@@ -13,5 +14,6 @@ class ProvisioningConfig {
     this.tpkFolder = '',
     this.tpkMode = TpkDistributionMode.roundRobin,
     this.maxParallel = 3,
+    this.devicePin = '',
   }) : apkPaths = apkPaths ?? [];
 }

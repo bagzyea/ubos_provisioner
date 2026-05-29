@@ -1,5 +1,42 @@
 import 'package:flutter/material.dart';
 
+class AppCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final EdgeInsetsGeometry? margin;
+
+  const AppCard({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(16),
+    this.margin,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+
+    final bg = isDark ? scheme.surfaceContainerHigh : scheme.surface;
+    final border = isDark ? scheme.outlineVariant.withAlpha(90) : scheme.outlineVariant;
+
+    final card = DecoratedBox(
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: border),
+      ),
+      child: Padding(
+        padding: padding,
+        child: child,
+      ),
+    );
+
+    if (margin == null) return card;
+    return Padding(padding: margin!, child: card);
+  }
+}
+
 class TwoPaneLayout extends StatelessWidget {
   final String leftTitle;
   final String rightTitle;
@@ -46,17 +83,14 @@ class TitledCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(title, style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            child,
-          ],
-        ),
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 12),
+          child,
+        ],
       ),
     );
   }
@@ -76,19 +110,16 @@ class ConfigSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 4),
-            Text(description, style: Theme.of(context).textTheme.bodySmall),
-            const SizedBox(height: 12),
-            child,
-          ],
-        ),
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 4),
+          Text(description, style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 12),
+          child,
+        ],
       ),
     );
   }
